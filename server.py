@@ -25,6 +25,17 @@ ERROR_PAGE = """\
 </html>    
 """
 
+DIRECTORY_LISTING = """\
+<html>
+<body>
+<h1>LISTING OF DIRECTORY: {path}</h1>
+<ul>
+{items}
+</ul>
+</body>
+</html>    
+"""
+
 class ServerException(Exception):
     """Custom exception for server errors."""
     pass
@@ -32,14 +43,14 @@ class ServerException(Exception):
 class base_case(object):
     '''Parent for case handlers'''
 
-    def handle_file(self, handler, full_path):
+    def handle_file(self, handler):
         try:
-            with open(full_path, 'rb') as reader:
+            with open(handler.full_path, 'r') as reader:
                 content = reader.read()
             handler.send_content(content)
         # FILE CANNOT BE READ
         except IOError as msg:
-            msg = "'{0}' cannot be read: {1}".format(full_path, msg)
+            msg = "'{0}' cannot be read: {1}".format(handler.full_path, msg)
             handler.handle_error(msg)
     
     # Constructs index.html file path
@@ -65,11 +76,32 @@ class case_existing_file(base_case):
     def test(self, handler):
         return os.path.isfile(handler.full_path)
     def act(self, handler):
-        handler.handle_file()
+        self.handle_file(handler)
+
+class case_directory_index_file(base_case):
+    '''Path provided is a directory and index.html file exists'''
+    def test(self, handler):
+        if os.path.isdir(handler.full_path): 
+            return os.path.isfile(os.path.join(handler.full_path, "index.html"))
+    def act(self, handler):
+        handler.full_path += "/index.html"
+        self.handle_file(handler)
+class case_directory_no_index_file(base_case):
+    def test(self, handler):
+        return not os.path.isfile(os.path.join(handler.full_path, "index.html"))
+    def act(self, handler):
+        visible_items = [item for item in os.listdir(handler.full_path) if not item.startswith(".")]
+        self.send_dir_listing_html(handler, visible_items)
+    def send_dir_listing_html(self, handler, visible_items):
+        list_items = "\n".join(f"<li>{item}</li>" for item in visible_items)
+        html_content = DIRECTORY_LISTING.format(path=handler.full_path, items=list_items)
+        handler.send_content(html_content)
 
 class RequestHandler(http.server.BaseHTTPRequestHandler):
     Cases = [case_no_file(),
-             case_existing_file()]
+             case_existing_file(),
+             case_directory_index_file(),
+             case_directory_no_index_file()]
 
     # Classify and Handle Request.
     def do_GET(self):
@@ -85,12 +117,6 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         # Handle errors.
         except Exception as msg:
             self.handle_error(msg)
-
-    # Handle File
-    def handle_file(self):
-        with open(self.full_path, "r", encoding="utf-8") as file:
-            html_content = file.read()
-            self.send_content(html_content)
 
     # Handle unknown objects.
     def handle_error(self, msg):
