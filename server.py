@@ -59,8 +59,17 @@ class case_no_file(base_case):
     def act(self, handler):
         raise ServerException("'{0}' not found".format(handler.path)) 
 
+class case_existing_file(base_case):
+    '''File exists.'''
+
+    def test(self, handler):
+        return os.path.isfile(handler.full_path)
+    def act(self, handler):
+        handler.handle_file()
+
 class RequestHandler(http.server.BaseHTTPRequestHandler):
-    Cases = [case_no_file()]
+    Cases = [case_no_file(),
+             case_existing_file()]
 
     # Classify and Handle Request.
     def do_GET(self):
@@ -76,6 +85,12 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         # Handle errors.
         except Exception as msg:
             self.handle_error(msg)
+
+    # Handle File
+    def handle_file(self):
+        with open(self.full_path, "r", encoding="utf-8") as file:
+            html_content = file.read()
+            self.send_content(html_content)
 
     # Handle unknown objects.
     def handle_error(self, msg):
