@@ -1,5 +1,9 @@
 import http.server
 import os
+from datetime import datetime
+import subprocess
+
+#TODO: Implement case_cgi_file() and case_always_fail()
 
 PAGE = """\
 <html>
@@ -86,6 +90,7 @@ class case_directory_index_file(base_case):
     def act(self, handler):
         handler.full_path += "/index.html"
         self.handle_file(handler)
+
 class case_directory_no_index_file(base_case):
     def test(self, handler):
         return not os.path.isfile(os.path.join(handler.full_path, "index.html"))
@@ -97,11 +102,29 @@ class case_directory_no_index_file(base_case):
         html_content = DIRECTORY_LISTING.format(path=handler.full_path, items=list_items)
         handler.send_content(html_content)
 
+class case_cgi_file(base_case):
+    def test(self, handler):
+        return os.path.isfile(handler.full_path) and \
+               handler.full_path.endswith('.py')
+    def act(self, handler):
+        handler.run_cgi(handler.full_path)
+
+class case_always_fail(object):
+
+    '''Base case if nothing else worked.'''
+
+    def test(self, handler):
+        return True
+
+    def act(self, handler):
+        raise ServerException("Unknown object '{0}'".format(handler.path))
 class RequestHandler(http.server.BaseHTTPRequestHandler):
     Cases = [case_no_file(),
+             case_cgi_file(),
              case_existing_file(),
              case_directory_index_file(),
-             case_directory_no_index_file()]
+             case_directory_no_index_file(), 
+             case_always_fail()]
 
     # Classify and Handle Request.
     def do_GET(self):
@@ -118,12 +141,19 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         except Exception as msg:
             self.handle_error(msg)
 
+    # Run cgi
+    def run_cgi(self, full_path):
+        try:
+            output = subprocess.check_output(['python3', full_path], stderr=subprocess.STDOUT)
+            self.send_content(output.decode())
+        except subprocess.CalledProcessError as e:
+            self.handle_error(f"CGI script error:\n{e.output.decode()}")
+
     # Handle unknown objects.
     def handle_error(self, msg):
         content = ERROR_PAGE.format(path=self.path, msg=msg)
         self.send_content(content, 404)
-
-    
+ 
     # Send actual content.
     def send_content(self, content, status=200):
         self.send_response(status)
